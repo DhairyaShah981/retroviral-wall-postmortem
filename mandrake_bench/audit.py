@@ -30,8 +30,13 @@ def degeneracy(y_score):
     }
 
 
-def shuffle_null_cls(y_true, y_score, pe_efficiency, n_shuffles=2000, seed=0):
-    """How likely is your CLS under random label permutation? p-value < 0.05 = signal."""
+def shuffle_null_cls(y_true, y_score, pe_efficiency, n_shuffles=5000, seed=0):
+    """How likely is your CLS under random label permutation? p-value < 0.05 = signal.
+
+    n_shuffles=5000 gives p-value resolution down to 2e-4. With 57 samples and a
+    fast CLS implementation this runs in ~2s. Bump higher only for publication-
+    grade null distributions.
+    """
     rng = np.random.default_rng(seed)
     real = cls_metric(y_true, y_score, pe_efficiency)["cls"]
     nulls = []
@@ -42,12 +47,15 @@ def shuffle_null_cls(y_true, y_score, pe_efficiency, n_shuffles=2000, seed=0):
         rng.shuffle(perm)
         nulls.append(cls_metric(y_true[perm], y_score, pe[perm])["cls"])
     nulls = np.array(nulls)
-    p = float((nulls >= real).mean())
+    # Add-one smoothing so p_value never reads 0.0 with finite samples
+    p = float((nulls >= real).sum() + 1) / float(n_shuffles + 1)
     return {
         "observed_cls": real,
         "null_mean": float(nulls.mean()),
         "null_std": float(nulls.std()),
         "null_max": float(nulls.max()),
+        "null_p95": float(np.quantile(nulls, 0.95)),
+        "n_shuffles": n_shuffles,
         "p_value": p,
         "is_significant": bool(p < 0.05),
     }
@@ -105,5 +113,5 @@ def run_full_audit(y_true, y_score, pe_efficiency, families):
         "degeneracy": degeneracy(y_score),
         "family_leakage": family_leakage(y_score, families, y_true),
         "class_rank_consistency": class_rank_consistency(y_true, y_score, pe_efficiency),
-        "shuffle_null": shuffle_null_cls(y_true, y_score, pe_efficiency, n_shuffles=500),
+        "shuffle_null": shuffle_null_cls(y_true, y_score, pe_efficiency, n_shuffles=5000),
     }
