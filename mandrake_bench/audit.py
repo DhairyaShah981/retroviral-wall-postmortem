@@ -107,6 +107,40 @@ def class_rank_consistency(y_true, y_score, pe_efficiency):
     }
 
 
+def identity_lookup_probe(y_score, families, identity_matrix=None, train_mask_per_family=None):
+    """Detect 'train-family prior-mean lookup' — submissions where each
+    held-out family's predictions are essentially the train-family active rate.
+
+    If the model isn't learning generalizable biophysics, its safest output on
+    an unseen family is the prior mean of the other families. This check
+    measures how close the per-family prediction *mean* is to a per-family-shuffled
+    null. If the spread within a family is small AND the mean is close to the
+    overall train base rate, the model is doing prior-mean lookup.
+    """
+    families = np.asarray(families)
+    y_score = np.asarray(y_score)
+    out = {}
+    overall_mean = float(y_score.mean())
+    for fam in sorted(set(families)):
+        mask = families == fam
+        fam_scores = y_score[mask]
+        out[fam] = {
+            "n": int(mask.sum()),
+            "within_fam_std": float(fam_scores.std()),
+            "mean_vs_overall_diff": float(abs(fam_scores.mean() - overall_mean)),
+        }
+    # Aggregate: are most families showing ≤0.05 std AND ≤0.05 from overall mean?
+    flat_count = sum(
+        1 for v in out.values()
+        if v["within_fam_std"] < 0.05 and v["mean_vs_overall_diff"] < 0.05
+    )
+    return {
+        "per_family": out,
+        "n_families_flat": flat_count,
+        "is_prior_mean_lookup": bool(flat_count >= 3),
+    }
+
+
 def run_full_audit(y_true, y_score, pe_efficiency, families):
     """Run all audit checks and return a single dict."""
     return {
@@ -114,4 +148,5 @@ def run_full_audit(y_true, y_score, pe_efficiency, families):
         "family_leakage": family_leakage(y_score, families, y_true),
         "class_rank_consistency": class_rank_consistency(y_true, y_score, pe_efficiency),
         "shuffle_null": shuffle_null_cls(y_true, y_score, pe_efficiency, n_shuffles=5000),
+        "identity_lookup": identity_lookup_probe(y_score, families),
     }

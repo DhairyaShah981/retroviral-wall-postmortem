@@ -22,4 +22,4 @@ vs Mandrake baseline `0.318`: **+0.1120**
 - **Score degeneracy:** 49 unique values; std `0.1334`; degenerate: `False`
 - **Class vs Rank gap:** 0.1525 (classifier-only: `False`)
 - **Family-constant predictions:** `False` (min within-family std `0.0000`)
-- **Permutation p-value:** `0.0460` (SIGNIFICANT vs label-shuffle null; null mean `0.1260`)
+- **Permutation p-value:** `0.0382` (SIGNIFICANT vs label-shuffle null; null mean `0.1227`)
