@@ -20,3 +20,4 @@ data
 # Local Kaggle creds if ever added
 .kaggle/
 kaggle.json
+mandrake-repo/

@@ -1,0 +1,4 @@
+submission,cls,pr_auc,w_spearman,is_degenerate,is_family_constant,is_classifier_only,shuffle_p_value
+A_oracle_binary,0.23853248369351493,1.0,0.1354169074850039,True,False,True,0.254
+B_family_constant,0.10456792988562377,0.6053830227743271,0.057226321924685276,False,True,True,0.408
+C_oracle_ranker,1.0000000000000002,1.0000000000000002,1.0,False,False,False,0.0
