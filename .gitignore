@@ -1,0 +1,22 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.DS_Store
+.ipynb_checkpoints/
+
+# We keep results/ since it's small + reproducible artifacts the user wants to share
+# Comment out below line if you want results out of git
+# results/
+
+# Symlink (the data lives in mandrake-repo/data/)
+data
+
+# Local Kaggle creds if ever added
+.kaggle/
+kaggle.json
