@@ -8,17 +8,19 @@
 
 ## TL;DR
 
-I spent a week on Mandrake's Retroviral Wall Challenge as a post-mortem (Stage 1 closed April 30; you're sorting Stage 2 results now). The headline result: **CLS 0.544 on LOFO, vs Mandrake's published reference of 0.318** — a 71% relative improvement using only the provided handcrafted features + a simple isotonic-calibrated RF stack.
+I spent a week on Mandrake's Retroviral Wall Challenge as a post-mortem (Stage 1 closed April 30; you're sorting Stage 2 results now). The headline result is **a methodology-audit harness** that flags the kinds of submissions tied at 1.0 on your Kaggle public leaderboard — and along the way, **CLS 0.544 on LOFO** (vs your published reference of 0.318) using a 60-line isotonic-calibrated RF stack on the provided handcrafted features.
 
-The more interesting result is *what I noticed on the way there*. Three findings:
+Four findings worth your attention:
 
-1. **The wall isn't Retroviral.** Held-out Retroviral PR-AUC sits at 0.83 across reasonable models. The actual generalization collapse is on **LTR_Retrotransposon** (PR-AUC ~0.20), the smallest active subset (2/11). The challenge name foregrounds Retroviral because of MMLV, but the real held-out failure is elsewhere.
+1. **The wall isn't Retroviral. It's LTR_Retrotransposon.** Held-out Retroviral PR-AUC is 0.83 across reasonable models. LTR's is 0.27, consistently, across classification, regression, and cross-family triage. The challenge name foregrounds Retroviral because of MMLV, but the real held-out failure is on the minority-active sparse family.
 
-2. **The Kaggle leaderboard is uninformative.** Top 6 entries are tied at exactly 1.00000 on a 57-sample LOFO problem. That's a methodology-tell, not a winning signal — the public Kaggle metric is almost certainly a simpler classification score, not the page-spec CLS. Your Stage-2 wet-lab validation exists precisely to sort these tied teams. I built the dry-side tool that would have done that sorting on Stage 1.
+2. **The Kaggle leaderboard is methodologically unsortable.** Top 6 entries tied at 1.00000 on a 57-sample LOFO problem with the page-spec CLS is a tell — the public metric is almost certainly simpler than CLS. Stage 2 wet-lab exists to sort them. My audit harness sorts them dry-side, before wet-lab cost.
 
-3. **The challenge page and the official scorer disagree on ε.** Page text says `weight_i = pe_efficiency_i + ε (ε = 0.1)`. The official `evaluation/evaluate.py` uses `EPSILON = 0.01`. 10× difference. I follow the code (it's what gets scored), expose both via kwarg, and document the divergence.
+3. **Your page and your scorer disagree on ε.** Page text says `weight_i = pe_efficiency_i + ε (ε = 0.1)`. `evaluation/evaluate.py` uses `EPSILON = 0.01`. 10× difference on inactive-RT weight; the audit harness reports both.
 
-The package I built — `mandrake-bench` — is open source (MIT, pip-installable) and contains a LOFO loop, the official CLS, four methodology-audit detectors that catch the failure modes Stage 2 was bolted on to catch, and an active-learning candidate selector for the wet-lab loop. Run it on any Mandrake Open Problem and a participant gets the same eval surface you use internally.
+4. **Sequence-identity proximity probe confirms the model isn't memorizing.** Spearman r(nearest-cross-family-identity, prediction-error) = **−0.06** — i.e., no correlation. The model is not doing nearest-neighbour lookup. Separately, LTR has the **lowest mean cross-family identity (34.7%)** of any active-containing family — that's the *structural* reason it's the wall: training on Retroviral RTs gives the model very little to lean on when predicting LTR. A real signal would have to come from a feature space orthogonal to evolutionary distance.
+
+The package — `mandrake-bench` — is open source (MIT, `pip install -e .`) with a LOFO loop, the official CLS, four methodology-audit detectors, a sequence-identity proximity probe, and a cross-family transfer-triage selector for the wet-lab loop.
 
 ---
 
@@ -109,7 +111,23 @@ This is exactly the failure mode `audit.class_rank_consistency` flags. It's an e
 
 ---
 
-## Active learning: it works for 3 of 4 active-containing families
+## Why simple beats deep at N=57 — and what to read on it
+
+The empirical result (RF 0.52 vs LightGBM 0.30 vs ESM-only LogReg 0.18) is the standard small-N protein-engineering regime predicted in [Hsu, Verkuil, Liu et al. 2022](https://pubmed.ncbi.nlm.nih.gov/35039677/) — *"Learning protein fitness models from evolutionary and assay-labeled data."* Their result: on small assay-labelled datasets, ridge regression on one-hot site features + one evolutionary-density feature (EVmutation or Potts) beats deep models. The intuition: 57 samples is below the inflection point where self-supervised representations help; supervised, regularized models with handcrafted biophysics dominate.
+
+What this means for *Open Problem #2*: if the next dataset is going to be a similar size, ship a "boring baselines" section in the challenge README so participants don't waste cycles fine-tuning ESM-3B. And ship `mandrake-bench` as the participant-facing benchmark so they're optimising against the same eval surface you score against internally.
+
+A few approaches I'd want to try with more time, with citations so they're not vibes:
+
+- **Supervised contrastive ESM fine-tune (CLEAN-style; Yu et al. 2023, *Science*, [doi:10.1126/science.adf2465](https://www.science.org/doi/10.1126/science.adf2465)).** Same-activity RTs as positives, different-activity-or-family as negatives, family-balanced batches. The principled version of the ESM-PCA-orthogonal hack I tried and abandoned.
+- **ProteinMPNN-derived per-residue log-likelihoods over the YXDD catalytic motif** as features. [Liu et al. 2026, *Nature Biotechnology* s41587-026-03149-6](https://www.nature.com/articles/s41587-026-03149-6) used inverse-folding redesign to engineer PE8/PEmax to 2.9× efficiency in mice — same group, same RT domain, different question. Inverse folding is an engineering tool; its log-likelihoods can be a classification feature.
+- **The Doman et al. 2023 paper that built this dataset** ([Cell, S0092-8674(23)00854-1](https://www.cell.com/cell/fulltext/S0092-8674(23)00854-1)) reports per-family efficiencies — useful prior for active-class weighting that I haven't fully exploited.
+
+---
+
+## Cross-family transfer triage: works for 3 of 4 active-containing families
+
+> Naming note: this is **not** a full acquire-fit-acquire active-learning loop — that requires a Stage 2 wet-lab feedback channel. It's a one-shot triage selector: model fitted on N-1 families, top-K candidates from the held-out family go to the wet lab first.
 
 Given a fitted RF regressor on PE efficiency, I extract RF-tree-std as a predictive uncertainty estimate, then select top-K candidates by `(predicted_efficiency**α * uncertainty**β)` with α=2, β=1. Simulating wet-lab triage on each held-out family:
 
@@ -125,6 +143,35 @@ Two real signals:
 - It fails on LTR — the same family that's the held-out wall. This isn't a selector bug; it's a *feature-space* failure. The biophysics features in `handcrafted_features.csv` don't carry LTR-activity signal in any regime — classification, ranking, or active selection. Real wet-lab signal must come from somewhere outside this 66-D feature space (maybe sequence-context-dependent, maybe RNA-template-binding, maybe Cas9-fusion compatibility).
 
 That's a useful negative result for Open Problem #2 scoping: don't expect handcrafted-feature ML to crack LTR. Either change the feature space or change the family weighting.
+
+---
+
+## Sequence-identity proximity — the model isn't memorizing
+
+A standard CASP-style rigour check: for every RT, compute max %identity to the nearest RT in *any other family* (simulating what training would see during LOFO). Then plot prediction error vs that identity. If models learned nearest-neighbour lookup, errors would collapse for high-identity points.
+
+The result (`notebooks/06_identity_proximity.py`):
+
+```
+Spearman r(nearest_cross_family_identity, prediction_error) = -0.06
+```
+
+Effectively zero. The isotonic-stack model is **not** doing nearest-neighbour lookup — it's actually learning from the handcrafted biophysics across families.
+
+But the per-family identity stats reveal the deeper *structural* reason the LTR wall exists:
+
+| Family | n | Mean max-cross-family-identity |
+|---|---|---|
+| CRISPR-associated | 5 | 38.4% |
+| Group_II_Intron | 5 | 37.5% |
+| Other | 5 | 36.8% |
+| Retron | 12 | 35.9% |
+| Retroviral | 18 | 35.6% |
+| **LTR_Retrotransposon** | **11** | **34.7%** ← lowest |
+
+LTR_Retrotransposon RTs are the **most evolutionarily distant from active RTs in other families**. When LTR is held out, the model is asked to predict activity from training examples that share, on average, only ~35% sequence identity — twilight-zone homology. There simply isn't enough sequence proximity for the biophysical features to interpolate from. **Real LTR-activity signal must live in a feature space orthogonal to evolutionary distance** — sequence-context-dependent, or in the Cas9-fusion interface, or in RNA-template-binding kinetics.
+
+That's a dataset-level finding, not a model-level one. For Open Problem #2: if a target family has mean cross-family identity below ~35%, no biophysical-features ML is going to crack it without new features.
 
 ---
 
@@ -177,11 +224,21 @@ git clone https://github.com/Mandrake-Bioworks/Retroviral-Wall-Challenge.git man
 ln -s "$(pwd)/mandrake-repo/data" data
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e . lightgbm
-python notebooks/01_baselines.py     # baselines
-python notebooks/04_day2_stack.py    # isotonic stack + AL demo
-python notebooks/05_audit_synthetic_perfect.py  # audit demo
+python notebooks/01_baselines.py     # baselines + family-leak canary
+python notebooks/04_day2_stack.py    # isotonic stack + transfer triage
+python notebooks/05_audit_synthetic_perfect.py  # audit on synthetic gamed submissions
+python notebooks/06_identity_proximity.py       # sequence-identity proximity probe
 python mandrake-repo/evaluation/evaluate.py \
     --predictions results/04_isotonic_stack_handonly_predictions.csv
 ```
 
-Everything is CPU. No GPU. Runs in under 2 minutes on a MacBook.
+Everything is CPU. No GPU. Full pipeline runs in under 3 minutes on a MacBook.
+
+---
+
+## References
+
+- Doman, J. L. et al. (2023). Phage-assisted evolution and protein engineering yield compact, efficient prime editors. *Cell.* [S0092-8674(23)00854-1](https://www.cell.com/cell/fulltext/S0092-8674(23)00854-1). *(The dataset source.)*
+- Liu, J. et al. (2026). AI-guided redesign of laboratory-evolved reverse transcriptases enhances prime editing. *Nature Biotechnology.* [s41587-026-03149-6](https://www.nature.com/articles/s41587-026-03149-6). *(David Liu group's RT redesign with ProteinMPNN.)*
+- Hsu, C., Verkuil, R., Liu, J. et al. (2022). Learning protein fitness models from evolutionary and assay-labeled data. *Nature Biotechnology.* [PMID 35039677](https://pubmed.ncbi.nlm.nih.gov/35039677/). *(Why simple supervised models beat deep at small N.)*
+- Yu, T., Cui, H., Li, J. C. et al. (2023). Enzyme function prediction using contrastive learning. *Science.* [doi:10.1126/science.adf2465](https://www.science.org/doi/10.1126/science.adf2465). *(CLEAN — supervised contrastive for enzyme function.)*

@@ -1,9 +1,12 @@
-"""Active learning candidate selector for the wet-lab loop.
+"""Cross-family transfer triage for the wet-lab loop.
 
-Given a fitted model + a pool of candidate RTs (with features), return the top-K
-candidates most worth sending to the wet lab. The objective matches Mandrake's
-real cost structure: missing a high-efficiency RT is far worse than misranking
-a low-efficiency one.
+Note on naming: this is NOT a full active-learning acquisition-fit-acquire
+loop. It's a one-shot triage selector: given a model fitted on N-1 families
+and a candidate pool from a held-out family, return the top-K candidates
+worth sending to the wet lab first.
+
+The objective matches Mandrake's real cost structure: missing a high-
+efficiency RT is far worse than misranking a low-efficiency one.
 
 Strategy: efficiency × uncertainty.
   - efficiency  = predicted PE efficiency (or active-class probability)
@@ -14,6 +17,10 @@ Strategy: efficiency × uncertainty.
 α=2, β=1 is a sensible default: prioritize high-mean candidates with
 non-trivial uncertainty (exploration-exploitation balance, weighted toward
 exploitation since we don't get to do many rounds).
+
+To extend to a proper active-learning loop, you'd add a `refit()` step after
+each wet-lab batch returns and recompute predictions on the residual pool.
+That requires a Stage 2 wet-lab feedback channel which doesn't exist yet.
 """
 from __future__ import annotations
 import numpy as np
